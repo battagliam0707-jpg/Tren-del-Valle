@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Servicios Ferroviarios · Tren del Valle</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Fuente Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <style>
+    * {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #020617;
+    }
+
+    #map {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    /* Pelotitas circulares luminosas con indicador direccional */
+    .train-ball {
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      border: 2.5px solid #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.08s linear;
+    }
+
+    .train-ball-arrow {
+      width: 11px;
+      height: 11px;
+      display: block;
+      filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.85));
+    }
+
+    /* Colores institucionales por diagrama del Tren del Valle */
+    .train-ball-completo {
+      background-color: #2563eb; /* 40xx Plottier ↔ Cipolletti · Azul */
+      box-shadow: 0 0 14px rgba(37, 99, 235, 1), 0 0 5px #ffffff;
+    }
+
+    .train-ball-oeste {
+      background-color: #10b981; /* 42xx Neuquén ↔ Plottier · Verde Esmeralda */
+      box-shadow: 0 0 14px rgba(16, 185, 129, 1), 0 0 5px #ffffff;
+    }
+
+    .train-ball-interprov {
+      background-color: #ea580c; /* 41xx Neuquén ↔ Cipolletti · Naranja */
+      box-shadow: 0 0 14px rgba(234, 88, 12, 1), 0 0 5px #ffffff;
+    }
+
+    .train-ball-local {
+      background-color: #9333ea; /* 48xx Plottier ↔ B° Unión · Morado */
+      box-shadow: 0 0 14px rgba(147, 51, 234, 1), 0 0 5px #ffffff;
+    }
+
+    /* Etiquetas permanentes de cabeceras */
+    .leaflet-tooltip.cabecera-label {
+      background-color: rgba(2, 6, 23, 0.90);
+      color: #f8fafc;
+      border: 1.5px solid rgba(251, 191, 36, 0.65);
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75);
+      white-space: nowrap;
+    }
+
+    .leaflet-tooltip.cabecera-label::before {
+      display: none;
+    }
+
+    /* Etiquetas de estaciones intermedias */
+    .leaflet-tooltip.station-label {
+      background-color: rgba(15, 23, 42, 0.82);
+      color: #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 5px;
+      padding: 1.5px 5.5px;
+      font-size: 9.5px;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+    }
+
+    .leaflet-tooltip.station-label::before {
+      display: none;
+    }
+
+    /* Control de capas Leaflet oscuro */
+    .leaflet-control-layers {
+      background-color: rgba(2, 6, 23, 0.85) !important;
+      color: #f8fafc !important;
+      border: 1px solid rgba(255, 255, 255, 0.18) !important;
+      border-radius: 12px !important;
+      padding: 6px 10px !important;
+      backdrop-filter: blur(8px);
+    }
+
+    .leaflet-control-layers-expanded label {
+      color: #f8fafc !important;
+      font-size: 11.5px !important;
+    }
+
+    /* Deslizador de tiempo ultrafino */
+    input[type="range"].clean-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(148, 163, 184, 0.25);
+      height: 4px;
+      border-radius: 9999px;
+      outline: none;
+    }
+
+    input[type="range"].clean-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 9999px;
+      background: #38bdf8;
+      border: 2px solid #ffffff;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="text-slate-100 select-none">
+
+  <!-- Mapa Base a Pantalla Completa -->
+  <div id="map"></div>
+
+  <!-- Cabecera Flotante Minimalista -->
+  <header
+    id="top-header"
+    class="fixed top-3 left-3 right-3 z-20 flex justify-center pointer-events-none"
+  >
+    <div class="bg-slate-950/85 backdrop-blur-md border border-white/15 rounded-2xl px-4 py-2.5 sm:px-6 sm:py-3 shadow-2xl text-center max-w-xl w-full pointer-events-auto">
+      <h1 class="text-sm sm:text-lg font-extrabold tracking-tight text-white leading-tight">
+        Servicios Ferroviarios · Tren del Valle
+      </h1>
+    </div>
+  </header>
+
+  <!-- Pie Flotante Minimalista: Reloj Rápido + Tiempos de Viaje + Gráfico 24h + Leyenda -->
+  <footer
+    id="bottom-bar"
+    class="fixed bottom-3 left-3 right-3 z-20 flex justify-center pointer-events-none"
+  >
+    <div class="w-full max-w-4xl bg-slate-950/85 backdrop-blur-md border border-white/15 rounded-2xl px-3.5 py-2.5 sm:px-5 sm:py-3 shadow-2xl pointer-events-auto space-y-2">
+
+      <!-- Fila 1: Reloj, Velocidad acelerada, Formaciones en circulación y Tiempos de viaje -->
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div class="flex flex-wrap items-center justify-between sm:justify-start gap-2">
+          <button
+            id="clock-toggle-btn"
+            type="button"
+            title="Clic para pausar o reanudar la simulación"
+            class="flex items-center gap-1.5 text-left cursor-pointer group"
+          >
+            <span id="clock-display" class="text-xl sm:text-2xl font-extrabold text-white tabular-nums tracking-tight group-hover:text-sky-300 transition">
+              07:12:00
+            </span>
+            <span id="play-state-badge" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/10 text-slate-200 group-hover:bg-white/20 transition">
+              ❚❚
+            </span>
+          </button>
+
+          <!-- Selector de velocidad respecto al tiempo real (300x, 500x, 700x, 900x y 1200x) -->
+          <div class="inline-flex items-center bg-slate-900/90 border border-white/15 rounded-full p-0.5 gap-0.5" role="group" aria-label="Velocidad de reproducción">
+            <button type="button" data-speed="300" title="300x tiempo real (1 seg = 5 min)" class="speed-btn text-[10px] font-extrabold px-2 sm:px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200 border border-amber-400/50 cursor-pointer transition">300x</button>
+            <button type="button" data-speed="500" title="500x tiempo real (1 seg = 8m 20s)" class="speed-btn text-[10px] font-bold px-2 sm:px-2.5 py-0.5 rounded-full text-slate-300 hover:text-white cursor-pointer transition">500x</button>
+            <button type="button" data-speed="700" title="700x tiempo real (1 seg = 11m 40s)" class="speed-btn text-[10px] font-bold px-2 sm:px-2.5 py-0.5 rounded-full text-slate-300 hover:text-white cursor-pointer transition">700x</button>
+            <button type="button" data-speed="900" title="900x tiempo real (1 seg = 15 min)" class="speed-btn text-[10px] font-bold px-2 sm:px-2.5 py-0.5 rounded-full text-slate-300 hover:text-white cursor-pointer transition">900x</button>
+            <button type="button" data-speed="1200" title="1200x tiempo real (1 seg = 20 min)" class="speed-btn text-[10px] font-bold px-2 sm:px-2.5 py-0.5 rounded-full text-slate-300 hover:text-white cursor-pointer transition">1200x</button>
+          </div>
+
+          <span id="active-count-pill" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 tabular-nums">
+            0 en circulación
+          </span>
+        </div>
+
+        <!-- Tiempos de viaje de referencia por tramo -->
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] sm:text-[11px] text-slate-300">
+          <span><strong class="text-white">Plottier–Cipolletti:</strong> 1h 11m</span>
+          <span class="text-slate-600">•</span>
+          <span><strong class="text-white">Neuquén–Plottier:</strong> 45m</span>
+          <span class="text-slate-600">•</span>
+          <span><strong class="text-white">Neuquén–Cipolletti:</strong> 25m</span>
+          <span class="text-slate-600">•</span>
+          <span><strong class="text-white">Plottier–B° Unión:</strong> 11m</span>
+        </div>
+      </div>
+
+      <!-- Barra de progreso temporal de 24h -->
+      <input
+        id="time-slider"
+        type="range"
+        min="0"
+        max="1439"
+        value="0"
+        aria-label="Línea de tiempo de 24 horas"
+        class="w-full clean-slider"
+      />
+
+      <!-- Gráfico de Línea 24h: Trenes en Movimiento por Diagrama -->
+      <div class="pt-1 border-t border-white/10">
+        <div class="flex items-center justify-between gap-2 mb-1">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] sm:text-[11px]">
+            <span class="font-bold text-slate-200 tracking-tight">Trenes en movimiento (24 h)</span>
+            <span class="text-slate-400">25 servicios diarios · Río Negro y Neuquén</span>
+          </div>
+          <button
+            id="toggle-chart-btn"
+            type="button"
+            class="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/15 text-slate-200 border border-white/15 cursor-pointer transition shrink-0"
+          >
+            Ocultar gráfico
+          </button>
+        </div>
+
+        <div id="chart-container" class="relative w-full h-[126px] sm:h-[138px] rounded-xl bg-slate-900/65 border border-white/10 overflow-hidden">
+          <canvas id="evolution-chart" class="w-full h-full block cursor-crosshair"></canvas>
+          <div
+            id="chart-hover-tooltip"
+            class="hidden pointer-events-none absolute z-30 bg-slate-950/95 border border-white/25 rounded-lg px-2.5 py-1.5 text-[10.5px] text-slate-100 shadow-xl backdrop-blur-md leading-snug"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Fila 2: Leyenda de Colores por Servicio (clic para filtrar o volver a vista general) -->
+      <div class="pt-1 border-t border-white/10 flex flex-wrap items-center justify-center sm:justify-between gap-x-3 gap-y-1.5 text-[11px] sm:text-xs font-medium text-slate-200">
+        <button type="button" data-filter-line="ALL" class="line-filter-btn flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-white/15 text-white font-bold ring-1 ring-white/30 cursor-pointer transition">
+          <span>Todos (25)</span>
+        </button>
+        <button type="button" data-filter-line="Plottier ↔ Cipolletti" class="line-filter-btn flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:text-white cursor-pointer transition">
+          <span class="w-3 h-3 rounded-full bg-[#2563eb] border-2 border-white inline-block shadow"></span>
+          <span>Plottier ↔ Cipolletti</span>
+        </button>
+        <button type="button" data-filter-line="Neuquén ↔ Plottier" class="line-filter-btn flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:text-white cursor-pointer transition">
+          <span class="w-3 h-3 rounded-full bg-[#10b981] border-2 border-white inline-block shadow"></span>
+          <span>Neuquén ↔ Plottier</span>
+        </button>
+        <button type="button" data-filter-line="Neuquén ↔ Cipolletti" class="line-filter-btn flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:text-white cursor-pointer transition">
+          <span class="w-3 h-3 rounded-full bg-[#ea580c] border-2 border-white inline-block shadow"></span>
+          <span>Neuquén ↔ Cipolletti</span>
+        </button>
+        <button type="button" data-filter-line="Plottier ↔ B° Unión" class="line-filter-btn flex items-center gap-1.5 px-1.5 py-0.5 rounded-md hover:text-white cursor-pointer transition">
+          <span class="w-3 h-3 rounded-full bg-[#9333ea] border-2 border-white inline-block shadow"></span>
+          <span>Plottier ↔ B° Unión</span>
+        </button>
+        <span class="text-[10px] text-slate-500">· @mbattaglia07</span>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <script>
+    /**
+     * =========================================================================
+     * 1. INICIALIZACIÓN DEL MAPA BASE (GOOGLE HYBRID + RESPALDO ESRI / ARGENMAP IGN)
+     * =========================================================================
+     */
+    const googleHybridLayer = L.tileLayer(
+      'https://{s}.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      {
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: 'Map data &copy; Google',
+        maxZoom: 20
+      }
+    );
+
+    const esriSatelliteLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 18
+      }
+    );
+
+    const argenmapLayer = L.tileLayer(
+      'https://wms.ign.gob.ar/geoserver/gwc/service/tms/1.0.0/capabaseargenmap@EPSG%3A3857@png/{z}/{x}/{-y}.png',
+      {
+        attribution: 'IGN Argentina - Argenmap',
+        minZoom: 3,
+        maxZoom: 18
+      }
+    );
+
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false,
+      layers: [googleHybridLayer]
+    }).setView([-38.952, -68.115], 12);
+
+    L.control.layers(
+      {
+        'Google Hybrid': googleHybridLayer,
+        'Esri Satélite': esriSatelliteLayer,
+        'Argenmap (IGN)': argenmapLayer
+      },
+      null,
+      { position: 'topright' }
+    ).addTo(map);
+
+    let googleTileErrors = 0;
+    googleHybridLayer.on('tileerror', () => {
+      googleTileErrors += 1;
+      if (googleTileErrors >= 6 && map.hasLayer(googleHybridLayer)) {
+        map.removeLayer(googleHybridLayer);
+        if (!map.hasLayer(esriSatelliteLayer)) {
+          map.addLayer(esriSatelliteLayer);
+        }
+      }
+    });
+
+    /**
+     * =========================================================================
+     * 2. CONFIGURACIÓN DE LOS 4 DIAGRAMAS DEL TREN DEL VALLE
+     * =========================================================================
+     */
+    const LINE_META = {
+      "Plottier ↔ Cipolletti": {
+        color: "#2563eb",
+        ballClass: "train-ball train-ball-completo",
+        bounds: [[-38.965, -68.242], [-38.932, -67.988]]
+      },
+      "Neuquén ↔ Plottier": {
+        color: "#10b981",
+        ballClass: "train-ball train-ball-oeste",
+        bounds: [[-38.965, -68.242], [-38.942, -68.050]]
+      },
+      "Neuquén ↔ Cipolletti": {
+        color: "#ea580c",
+        ballClass: "train-ball train-ball-interprov",
+        bounds: [[-38.963, -68.068], [-38.932, -67.988]]
+      },
+      "Plottier ↔ B° Unión": {
+        color: "#9333ea",
+        ballClass: "train-ball train-ball-local",
+        bounds: [[-38.963, -68.242], [-38.942, -68.168]]
+      }
+    };
+
+    const REGIONAL_BOUNDS = [[-38.968, -68.245], [-38.930, -67.986]];
+
+    /**
+     * =========================================================================
+     * 3. ESTACIONES Y TRAZA FERROVIARIA (PLOTTIER – NEUQUÉN – CIPOLLETTI)
+     * =========================================================================
+     */
+    const STATIONS = {
+      "Plottier": {
+        coords: [-38.9477, -68.2341],
+        terminal: true,
+        labelDir: 'top',
+        labelOffset: [0, -10]
+      },
+      "Constituyentes": {
+        coords: [-38.9537, -68.1981],
+        terminal: false,
+        labelDir: 'bottom',
+        labelOffset: [0, 8]
+      },
+      "Barrio Unión": {
+        coords: [-38.9571, -68.1763],
+        terminal: false,
+        labelDir: 'top',
+        labelOffset: [0, -8]
+      },
+      "Aeropuerto": {
+        coords: [-38.9557, -68.1387],
+        terminal: false,
+        labelDir: 'bottom',
+        labelOffset: [0, 8]
+      },
+      "El Cholar": {
+        coords: [-38.9556, -68.1118],
+        terminal: false,
+        labelDir: 'top',
+        labelOffset: [0, -8]
+      },
+      "ETON": {
+        coords: [-38.9556, -68.0972],
+        terminal: false,
+        labelDir: 'bottom',
+        labelOffset: [0, 8]
+      },
+      "Ignacio Rivas": {
+        coords: [-38.9556, -68.0754],
+        terminal: false,
+        labelDir: 'top',
+        labelOffset: [0, -8]
+      },
+      "Neuquén": {
+        coords: [-38.9556, -68.0592],
+        terminal: true,
+        labelDir: 'bottom',
+        labelOffset: [0, 10]
+      },
+      "Cipolletti": {
+        coords: [-38.9410, -67.9973],
+        terminal: true,
+        labelDir: 'top',
+        labelOffset: [0, -10]
+      }
+    };
+
+    const STATION_ORDER = [
+      "Plottier",
+      "Constituyentes",
+      "Barrio Unión",
+      "Aeropuerto",
+      "El Cholar",
+      "ETON",
+      "Ignacio Rivas",
+      "Neuquén",
+      "Cipolletti"
+    ];
+
+    // Puntos de geometría real de la vía entre estaciones contiguas (incluyendo puente Río Neuquén)
+    const SEGMENT_WAYPOINTS = {
+      "Barrio Unión|Aeropuerto": [
+        [-38.9562, -68.1635],
+        [-38.9558, -68.1510]
+      ],
+      "Neuquén|Cipolletti": [
+        [-38.9555, -68.0410],
+        [-38.9552, -68.0265],
+        [-38.9546, -68.0205],
+        [-38.9515, -68.0120],
+        [-38.9465, -68.0045]
+      ]
+    };
+
+    function getDirectSubPolyline(stA, stB) {
+      const pA = STATIONS[stA].coords;
+      const pB = STATIONS[stB].coords;
+      const forwardKey = `${stA}|${stB}`;
+      const reverseKey = `${stB}|${stA}`;
+      if (SEGMENT_WAYPOINTS[forwardKey]) {
+        return [pA, ...SEGMENT_WAYPOINTS[forwardKey], pB];
+      }
+      if (SEGMENT_WAYPOINTS[reverseKey]) {
+        return [pA, ...[...SEGMENT_WAYPOINTS[reverseKey]].reverse(), pB];
+      }
+      return [pA, pB];
+    }
+
+    function getSubPolyline(stA, stB) {
+      const idxA = STATION_ORDER.indexOf(stA);
+      const idxB = STATION_ORDER.indexOf(stB);
+      if (idxA === -1 || idxB === -1 || idxA === idxB) {
+        return getDirectSubPolyline(stA, stB);
+      }
+      const step = idxA < idxB ? 1 : -1;
+      const full = [];
+      for (let i = idxA; i !== idxB; i += step) {
+        const seg = getDirectSubPolyline(STATION_ORDER[i], STATION_ORDER[i + step]);
+        if (full.length === 0) full.push(...seg);
+        else full.push(...seg.slice(1));
+      }
+      return full;
+    }
+
+    function haversineKm(p1, p2) {
+      const R = 6371.0088;
+      const toRad = (deg) => (deg * Math.PI) / 180;
+      const dLat = toRad(p2[0] - p1[0]);
+      const dLon = toRad(p2[1] - p1[1]);
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(p1[0])) * Math.cos(toRad(p2[0])) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    const MAIN_CORRIDOR_POLYLINE = getSubPolyline("Plottier", "Cipolletti");
+
+    const DIAGRAM_POLYLINES = {
+      "Plottier ↔ Cipolletti": getSubPolyline("Plottier", "Cipolletti"),
+      "Neuquén ↔ Plottier": getSubPolyline("Plottier", "Neuquén"),
+      "Neuquén ↔ Cipolletti": getSubPolyline("Neuquén", "Cipolletti"),
+      "Plottier ↔ B° Unión": getSubPolyline("Plottier", "Barrio Unión")
+    };
+
+    /**
+     * =========================================================================
+     * 4. BASE DE SERVICIOS FERROVIARIOS (25 SERVICIOS · TREN DEL VALLE)
+     * =========================================================================
+     */
+    const RAIL_SERVICES = [{"id": "TDV-4002", "linea": "Plottier ↔ Cipolletti", "tren": "4002", "clase": "Corredor Completo (40xx) · Sentido Este", "origen": "Plottier", "destino": "Cipolletti", "salida": "05:40", "llegada": "06:51", "duracionMin": 71, "stops": [[1, "Plottier", 1, "Cabecera Origen", "05:40", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "05:48", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "05:52", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "06:00", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "06:06", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "06:10", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "06:18", 0, 8, 38], [8, "Neuquén", 1, "Parada Intermedia", "06:26", 0, 8, 46], [9, "Cipolletti", 1, "Cabecera Destino", "06:51", 0, 25, 71]], "isSpecial": false}, {"id": "TDV-4004", "linea": "Plottier ↔ Cipolletti", "tren": "4004", "clase": "Corredor Completo (40xx) · Sentido Este", "origen": "Plottier", "destino": "Cipolletti", "salida": "07:05", "llegada": "08:16", "duracionMin": 71, "stops": [[1, "Plottier", 1, "Cabecera Origen", "07:05", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "07:13", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "07:17", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "07:25", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "07:31", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "07:35", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "07:43", 0, 8, 38], [8, "Neuquén", 1, "Parada Intermedia", "07:51", 0, 8, 46], [9, "Cipolletti", 1, "Cabecera Destino", "08:16", 0, 25, 71]], "isSpecial": false}, {"id": "TDV-4208", "linea": "Neuquén ↔ Plottier", "tren": "4208", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "09:45", "llegada": "10:30", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "09:45", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "09:53", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "09:57", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "10:05", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "10:11", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "10:15", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "10:23", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "10:30", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4210", "linea": "Neuquén ↔ Plottier", "tren": "4210", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "11:35", "llegada": "12:20", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "11:35", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "11:43", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "11:47", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "11:55", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "12:01", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "12:05", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "12:13", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "12:20", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4812", "linea": "Plottier ↔ B° Unión", "tren": "4812", "clase": "Servicio Local Corto (48xx) · Sentido Este", "origen": "Plottier", "destino": "Barrio Unión", "salida": "13:33", "llegada": "13:44", "duracionMin": 11, "stops": [[1, "Plottier", 1, "Cabecera Origen", "13:33", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "13:41", 0, 8, 8], [3, "Barrio Unión", 1, "Cabecera Destino", "13:44", 0, 3, 11], [4, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "ETON", 0, "Sin parada", "----", null, null, null], [7, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [8, "Neuquén", 0, "Sin parada", "----", null, null, null], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4214", "linea": "Neuquén ↔ Plottier", "tren": "4214", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "14:30", "llegada": "15:15", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "14:30", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "14:38", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "14:42", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "14:50", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "14:56", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "15:00", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "15:08", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "15:15", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4116", "linea": "Neuquén ↔ Cipolletti", "tren": "4116", "clase": "Tramo Interprovincial (41xx) · Sentido Este", "origen": "Neuquén", "destino": "Cipolletti", "salida": "16:10", "llegada": "16:35", "duracionMin": 25, "stops": [[1, "Plottier", 0, "Sin parada", "----", null, null, null], [2, "Constituyentes", 0, "Sin parada", "----", null, null, null], [3, "Barrio Unión", 0, "Sin parada", "----", null, null, null], [4, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "ETON", 0, "Sin parada", "----", null, null, null], [7, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [8, "Neuquén", 1, "Cabecera Origen", "16:10", 0, 0, 0], [9, "Cipolletti", 1, "Cabecera Destino", "16:35", 0, 25, 25]], "isSpecial": false}, {"id": "TDV-4218", "linea": "Neuquén ↔ Plottier", "tren": "4218", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "16:20", "llegada": "17:05", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "16:20", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "16:28", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "16:32", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "16:40", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "16:46", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "16:50", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "16:58", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "17:05", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4120", "linea": "Neuquén ↔ Cipolletti", "tren": "4120", "clase": "Tramo Interprovincial (41xx) · Sentido Este", "origen": "Neuquén", "destino": "Cipolletti", "salida": "17:50", "llegada": "18:15", "duracionMin": 25, "stops": [[1, "Plottier", 0, "Sin parada", "----", null, null, null], [2, "Constituyentes", 0, "Sin parada", "----", null, null, null], [3, "Barrio Unión", 0, "Sin parada", "----", null, null, null], [4, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "ETON", 0, "Sin parada", "----", null, null, null], [7, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [8, "Neuquén", 1, "Cabecera Origen", "17:50", 0, 0, 0], [9, "Cipolletti", 1, "Cabecera Destino", "18:15", 0, 25, 25]], "isSpecial": false}, {"id": "TDV-4222", "linea": "Neuquén ↔ Plottier", "tren": "4222", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "18:20", "llegada": "19:05", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "18:20", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "18:28", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "18:32", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "18:40", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "18:46", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "18:50", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "18:58", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "19:05", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4224", "linea": "Neuquén ↔ Plottier", "tren": "4224", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Este", "origen": "Plottier", "destino": "Neuquén", "salida": "20:20", "llegada": "21:05", "duracionMin": 45, "stops": [[1, "Plottier", 1, "Cabecera Origen", "20:20", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "20:28", 0, 8, 8], [3, "Barrio Unión", 1, "Parada Intermedia", "20:32", 0, 4, 12], [4, "Aeropuerto", 1, "Parada Intermedia", "20:40", 0, 8, 20], [5, "El Cholar", 1, "Parada Intermedia", "20:46", 0, 6, 26], [6, "ETON", 1, "Parada Intermedia", "20:50", 0, 4, 30], [7, "Ignacio Rivas", 1, "Parada Intermedia", "20:58", 0, 8, 38], [8, "Neuquén", 1, "Cabecera Destino", "21:05", 0, 7, 45], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4826", "linea": "Plottier ↔ B° Unión", "tren": "4826", "clase": "Servicio Local Corto (48xx) · Sentido Este", "origen": "Plottier", "destino": "Barrio Unión", "salida": "22:08", "llegada": "22:19", "duracionMin": 11, "stops": [[1, "Plottier", 1, "Cabecera Origen", "22:08", 0, 0, 0], [2, "Constituyentes", 1, "Parada Intermedia", "22:16", 0, 8, 8], [3, "Barrio Unión", 1, "Cabecera Destino", "22:19", 0, 3, 11], [4, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "ETON", 0, "Sin parada", "----", null, null, null], [7, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [8, "Neuquén", 0, "Sin parada", "----", null, null, null], [9, "Cipolletti", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4801", "linea": "Plottier ↔ B° Unión", "tren": "4801", "clase": "Servicio Local Corto (48xx) · Sentido Oeste", "origen": "Barrio Unión", "destino": "Plottier", "salida": "05:20", "llegada": "05:31", "duracionMin": 11, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 0, "Sin parada", "----", null, null, null], [3, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [4, "ETON", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [7, "Barrio Unión", 1, "Cabecera Origen", "05:20", 0, 0, 0], [8, "Constituyentes", 1, "Parada Intermedia", "05:24", 0, 4, 4], [9, "Plottier", 1, "Cabecera Destino", "05:31", 0, 7, 11]], "isSpecial": false}, {"id": "TDV-4803", "linea": "Plottier ↔ B° Unión", "tren": "4803", "clase": "Servicio Local Corto (48xx) · Sentido Oeste", "origen": "Barrio Unión", "destino": "Plottier", "salida": "06:35", "llegada": "06:46", "duracionMin": 11, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 0, "Sin parada", "----", null, null, null], [3, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [4, "ETON", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [7, "Barrio Unión", 1, "Cabecera Origen", "06:35", 0, 0, 0], [8, "Constituyentes", 1, "Parada Intermedia", "06:39", 0, 4, 4], [9, "Plottier", 1, "Cabecera Destino", "06:46", 0, 7, 11]], "isSpecial": false}, {"id": "TDV-4105", "linea": "Neuquén ↔ Cipolletti", "tren": "4105", "clase": "Tramo Interprovincial (41xx) · Sentido Oeste", "origen": "Cipolletti", "destino": "Neuquén", "salida": "07:00", "llegada": "07:25", "duracionMin": 25, "stops": [[1, "Cipolletti", 1, "Cabecera Origen", "07:00", 0, 0, 0], [2, "Neuquén", 1, "Cabecera Destino", "07:25", 0, 25, 25], [3, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [4, "ETON", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [7, "Barrio Unión", 0, "Sin parada", "----", null, null, null], [8, "Constituyentes", 0, "Sin parada", "----", null, null, null], [9, "Plottier", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4007", "linea": "Plottier ↔ Cipolletti", "tren": "4007", "clase": "Corredor Completo (40xx) · Sentido Oeste", "origen": "Cipolletti", "destino": "Plottier", "salida": "08:25", "llegada": "09:36", "duracionMin": 71, "stops": [[1, "Cipolletti", 1, "Cabecera Origen", "08:25", 0, 0, 0], [2, "Neuquén", 1, "Parada Intermedia", "08:51", 0, 26, 26], [3, "Ignacio Rivas", 1, "Parada Intermedia", "08:59", 0, 8, 34], [4, "ETON", 1, "Parada Intermedia", "09:07", 0, 8, 42], [5, "El Cholar", 1, "Parada Intermedia", "09:11", 0, 4, 46], [6, "Aeropuerto", 1, "Parada Intermedia", "09:17", 0, 6, 52], [7, "Barrio Unión", 1, "Parada Intermedia", "09:25", 0, 8, 60], [8, "Constituyentes", 1, "Parada Intermedia", "09:29", 0, 4, 64], [9, "Plottier", 1, "Cabecera Destino", "09:36", 0, 7, 71]], "isSpecial": false}, {"id": "TDV-4209", "linea": "Neuquén ↔ Plottier", "tren": "4209", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Plottier", "salida": "10:40", "llegada": "11:25", "duracionMin": 45, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "10:40", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "10:48", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "10:56", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "11:00", 0, 4, 20], [6, "Aeropuerto", 1, "Parada Intermedia", "11:06", 0, 6, 26], [7, "Barrio Unión", 1, "Parada Intermedia", "11:14", 0, 8, 34], [8, "Constituyentes", 1, "Parada Intermedia", "11:18", 0, 4, 38], [9, "Plottier", 1, "Cabecera Destino", "11:25", 0, 7, 45]], "isSpecial": false}, {"id": "TDV-4211", "linea": "Neuquén ↔ Plottier", "tren": "4211", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Plottier", "salida": "12:40", "llegada": "13:25", "duracionMin": 45, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "12:40", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "12:48", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "12:56", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "13:00", 0, 4, 20], [6, "Aeropuerto", 1, "Parada Intermedia", "13:06", 0, 6, 26], [7, "Barrio Unión", 1, "Parada Intermedia", "13:14", 0, 8, 34], [8, "Constituyentes", 1, "Parada Intermedia", "13:18", 0, 4, 38], [9, "Plottier", 1, "Cabecera Destino", "13:25", 0, 7, 45]], "isSpecial": false}, {"id": "TDV-4813", "linea": "Plottier ↔ B° Unión", "tren": "4813", "clase": "Servicio Local Corto (48xx) · Sentido Oeste", "origen": "Barrio Unión", "destino": "Plottier", "salida": "14:04", "llegada": "14:15", "duracionMin": 11, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 0, "Sin parada", "----", null, null, null], [3, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [4, "ETON", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [7, "Barrio Unión", 1, "Cabecera Origen", "14:04", 0, 0, 0], [8, "Constituyentes", 1, "Parada Intermedia", "14:08", 0, 4, 4], [9, "Plottier", 1, "Cabecera Destino", "14:15", 0, 7, 11]], "isSpecial": false}, {"id": "TDV-4215", "linea": "Neuquén ↔ Plottier", "tren": "4215", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Plottier", "salida": "15:25", "llegada": "16:10", "duracionMin": 45, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "15:25", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "15:33", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "15:41", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "15:45", 0, 4, 20], [6, "Aeropuerto", 1, "Parada Intermedia", "15:51", 0, 6, 26], [7, "Barrio Unión", 1, "Parada Intermedia", "15:59", 0, 8, 34], [8, "Constituyentes", 1, "Parada Intermedia", "16:03", 0, 4, 38], [9, "Plottier", 1, "Cabecera Destino", "16:10", 0, 7, 45]], "isSpecial": false}, {"id": "TDV-4017", "linea": "Plottier ↔ Cipolletti", "tren": "4017", "clase": "Corredor Completo (40xx) · Sentido Oeste", "origen": "Cipolletti", "destino": "Plottier", "salida": "17:00", "llegada": "18:10", "duracionMin": 70, "stops": [[1, "Cipolletti", 1, "Cabecera Origen", "17:00", 0, 0, 0], [2, "Neuquén", 1, "Parada Intermedia", "17:26", 0, 26, 26], [3, "Ignacio Rivas", 1, "Parada Intermedia", "17:34", 0, 8, 34], [4, "ETON", 1, "Parada Intermedia", "17:42", 0, 8, 42], [5, "El Cholar", 1, "Parada Intermedia", "17:46", 0, 4, 46], [6, "Aeropuerto", 1, "Parada Intermedia", "17:52", 0, 6, 52], [7, "Barrio Unión", 1, "Parada Intermedia", "18:00", 0, 8, 60], [8, "Constituyentes", 1, "Parada Intermedia", "18:03", 0, 3, 63], [9, "Plottier", 1, "Cabecera Destino", "18:10", 0, 7, 70]], "isSpecial": false}, {"id": "TDV-4121", "linea": "Neuquén ↔ Cipolletti", "tren": "4121", "clase": "Tramo Interprovincial (41xx) · Sentido Oeste", "origen": "Cipolletti", "destino": "Neuquén", "salida": "18:25", "llegada": "18:50", "duracionMin": 25, "stops": [[1, "Cipolletti", 1, "Cabecera Origen", "18:25", 0, 0, 0], [2, "Neuquén", 1, "Cabecera Destino", "18:50", 0, 25, 25], [3, "Ignacio Rivas", 0, "Sin parada", "----", null, null, null], [4, "ETON", 0, "Sin parada", "----", null, null, null], [5, "El Cholar", 0, "Sin parada", "----", null, null, null], [6, "Aeropuerto", 0, "Sin parada", "----", null, null, null], [7, "Barrio Unión", 0, "Sin parada", "----", null, null, null], [8, "Constituyentes", 0, "Sin parada", "----", null, null, null], [9, "Plottier", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4223", "linea": "Neuquén ↔ Plottier", "tren": "4223", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Plottier", "salida": "19:15", "llegada": "20:00", "duracionMin": 45, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "19:15", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "19:23", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "19:31", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "19:35", 0, 4, 20], [6, "Aeropuerto", 1, "Parada Intermedia", "19:41", 0, 6, 26], [7, "Barrio Unión", 1, "Parada Intermedia", "19:49", 0, 8, 34], [8, "Constituyentes", 1, "Parada Intermedia", "19:53", 0, 4, 38], [9, "Plottier", 1, "Cabecera Destino", "20:00", 0, 7, 45]], "isSpecial": false}, {"id": "TDV-4225", "linea": "Neuquén ↔ Plottier", "tren": "4225", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Aeropuerto", "salida": "19:40", "llegada": "20:05", "duracionMin": 25, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "19:40", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "19:48", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "19:56", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "20:00", 0, 4, 20], [6, "Aeropuerto", 1, "Cabecera Destino", "20:05", 0, 5, 25], [7, "Barrio Unión", 0, "Sin parada", "----", null, null, null], [8, "Constituyentes", 0, "Sin parada", "----", null, null, null], [9, "Plottier", 0, "Sin parada", "----", null, null, null]], "isSpecial": false}, {"id": "TDV-4227", "linea": "Neuquén ↔ Plottier", "tren": "4227", "clase": "Tramo Oeste / Aeropuerto (42xx) · Sentido Oeste", "origen": "Neuquén", "destino": "Plottier", "salida": "21:15", "llegada": "22:00", "duracionMin": 45, "stops": [[1, "Cipolletti", 0, "Sin parada", "----", null, null, null], [2, "Neuquén", 1, "Cabecera Origen", "21:15", 0, 0, 0], [3, "Ignacio Rivas", 1, "Parada Intermedia", "21:23", 0, 8, 8], [4, "ETON", 1, "Parada Intermedia", "21:31", 0, 8, 16], [5, "El Cholar", 1, "Parada Intermedia", "21:35", 0, 4, 20], [6, "Aeropuerto", 1, "Parada Intermedia", "21:41", 0, 6, 26], [7, "Barrio Unión", 1, "Parada Intermedia", "21:49", 0, 8, 34], [8, "Constituyentes", 1, "Parada Intermedia", "21:53", 0, 4, 38], [9, "Plottier", 1, "Cabecera Destino", "22:00", 0, 7, 45]], "isSpecial": false}];
+
+    function toMinutes(hhmm) {
+      if (!hhmm || hhmm === "----") return null;
+      const [h, m] = hhmm.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function formatMinutes(totalMins) {
+      const m = ((Math.floor(totalMins) % 1440) + 1440) % 1440;
+      return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    }
+
+    function formatClockWithSeconds(totalMins) {
+      const totalSecs = ((Math.floor(totalMins * 60) % 86400) + 86400) % 86400;
+      const hh = Math.floor(totalSecs / 3600);
+      const mm = Math.floor((totalSecs % 3600) / 60);
+      const ss = totalSecs % 60;
+      return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+    }
+
+    function computeSegmentHeadingDeg(p1, p2) {
+      const midLatRad = (((p1[0] + p2[0]) / 2) * Math.PI) / 180;
+      const dx = (p2[1] - p1[1]) * Math.cos(midLatRad);
+      const dy = p2[0] - p1[0];
+      if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) return 90;
+      const rad = Math.atan2(dx, dy);
+      return ((rad * 180) / Math.PI + 360) % 360;
+    }
+
+    function offsetLateralStarboard(pos, headingDeg, lateralMeters) {
+      if (!lateralMeters) return pos;
+      const rightBearingRad = ((headingDeg + 90) * Math.PI) / 180;
+      const latRad = (pos[0] * Math.PI) / 180;
+      const dNorth = lateralMeters * Math.cos(rightBearingRad);
+      const dEast = lateralMeters * Math.sin(rightBearingRad);
+      const dLat = dNorth / 111320;
+      const dLon = dEast / (111320 * Math.max(0.2, Math.cos(latRad)));
+      return [pos[0] + dLat, pos[1] + dLon];
+    }
+
+    function interpolatePolylineWithHeading(coords, fraction, lateralMeters) {
+      if (!coords || coords.length === 0) return { pos: [-38.9556, -68.0592], headingDeg: 90 };
+      if (coords.length === 1) return { pos: coords[0], headingDeg: 90 };
+
+      const clamped = Math.max(0, Math.min(1, fraction));
+      let totalDist = 0;
+      const segs = [];
+      for (let i = 0; i < coords.length - 1; i++) {
+        const d = haversineKm(coords[i], coords[i + 1]);
+        segs.push(d);
+        totalDist += d;
+      }
+
+      if (clamped <= 0) {
+        const headingDeg = computeSegmentHeadingDeg(coords[0], coords[1]);
+        return { pos: offsetLateralStarboard(coords[0], headingDeg, lateralMeters), headingDeg };
+      }
+      if (clamped >= 1) {
+        const headingDeg = computeSegmentHeadingDeg(coords[coords.length - 2], coords[coords.length - 1]);
+        return { pos: offsetLateralStarboard(coords[coords.length - 1], headingDeg, lateralMeters), headingDeg };
+      }
+
+      let target = totalDist * clamped;
+      for (let i = 0; i < segs.length; i++) {
+        if (target <= segs[i] || i === segs.length - 1) {
+          const r = segs[i] === 0 ? 0 : Math.min(1, target / segs[i]);
+          const rawPos = [
+            coords[i][0] + (coords[i + 1][0] - coords[i][0]) * r,
+            coords[i][1] + (coords[i + 1][1] - coords[i][1]) * r
+          ];
+          const headingDeg = computeSegmentHeadingDeg(coords[i], coords[i + 1]);
+          return {
+            pos: offsetLateralStarboard(rawPos, headingDeg, lateralMeters),
+            headingDeg
+          };
+        }
+        target -= segs[i];
+      }
+
+      const fallbackHeading = computeSegmentHeadingDeg(coords[coords.length - 2], coords[coords.length - 1]);
+      return {
+        pos: offsetLateralStarboard(coords[coords.length - 1], fallbackHeading, lateralMeters),
+        headingDeg: fallbackHeading
+      };
+    }
+
+    function getTrainPositionAtElapsed(service, elapsedMin, lateralMeters) {
+      const activeStops = service.stops.filter((s) => s[2] === 1 && s[7] !== null);
+      if (activeStops.length < 2) return null;
+
+      if (elapsedMin <= 0) {
+        const firstSeg = getSubPolyline(activeStops[0][1], activeStops[1][1]);
+        const headingDeg = computeSegmentHeadingDeg(firstSeg[0], firstSeg[1]);
+        return {
+          pos: offsetLateralStarboard(firstSeg[0], headingDeg, lateralMeters),
+          headingDeg,
+          fromSt: activeStops[0][1],
+          toSt: activeStops[1][1],
+          nextTime: activeStops[1][4]
+        };
+      }
+
+      for (let i = 0; i < activeStops.length - 1; i++) {
+        const sA = activeStops[i];
+        const sB = activeStops[i + 1];
+        const tA = sA[7];
+        const tB = sB[7];
+        if (elapsedMin >= tA && elapsedMin <= tB) {
+          const span = Math.max(1, tB - tA);
+          const frac = (elapsedMin - tA) / span;
+          const segCoords = getSubPolyline(sA[1], sB[1]);
+          const { pos, headingDeg } = interpolatePolylineWithHeading(segCoords, frac, lateralMeters);
+          return {
+            pos,
+            headingDeg,
+            fromSt: sA[1],
+            toSt: sB[1],
+            nextTime: sB[4]
+          };
+        }
+      }
+
+      const lastA = activeStops[activeStops.length - 2];
+      const lastB = activeStops[activeStops.length - 1];
+      const lastSeg = getSubPolyline(lastA[1], lastB[1]);
+      const headingDeg = computeSegmentHeadingDeg(lastSeg[lastSeg.length - 2], lastSeg[lastSeg.length - 1]);
+      return {
+        pos: offsetLateralStarboard(lastSeg[lastSeg.length - 1], headingDeg, lateralMeters),
+        headingDeg,
+        fromSt: lastA[1],
+        toSt: lastB[1],
+        nextTime: lastB[4]
+      };
+    }
+
+    /**
+     * =========================================================================
+     * 5. CAPAS Y BUCLE DE SIMULACIÓN ACELERADO (24 H CONTINUAS)
+     * =========================================================================
+     */
+    const routesLayer = L.layerGroup().addTo(map);
+    const stationsLayer = L.layerGroup().addTo(map);
+    const activeMarkersLayer = L.layerGroup().addTo(map);
+
+    let speedMultiplier = 300; // 300x tiempo real (1 seg real = 5 min simulados); opciones: 300x, 500x, 700x, 900x y 1200x
+    let lineFilter = 'ALL';
+    let simMinutes = 7 * 60 + 12; // Inicia a las 07:12 con trenes activos en ambos sentidos
+    let isPlaying = true;
+    let lastTimestamp = performance.now();
+
+    function fitMapBounds(animate = true) {
+      const headerEl = document.getElementById('top-header');
+      const bottomEl = document.getElementById('bottom-bar');
+      const topPad = (headerEl ? headerEl.offsetHeight : 64) + 28;
+      const bottomPad = (bottomEl ? bottomEl.offsetHeight : 140) + 28;
+
+      const targetBounds = lineFilter === 'ALL'
+        ? L.latLngBounds(REGIONAL_BOUNDS)
+        : L.latLngBounds(LINE_META[lineFilter].bounds);
+
+      if (animate) {
+        map.flyToBounds(targetBounds, {
+          paddingTopLeft: [36, topPad],
+          paddingBottomRight: [36, bottomPad],
+          duration: 0.75
+        });
+      } else {
+        map.fitBounds(targetBounds, {
+          paddingTopLeft: [36, topPad],
+          paddingBottomRight: [36, bottomPad],
+          animate: false
+        });
+      }
+    }
+
+    function renderNetworkGeometry() {
+      routesLayer.clearLayers();
+      stationsLayer.clearLayers();
+
+      // 1. Traza base completa del Tren del Valle (Plottier – Neuquén – Cipolletti)
+      L.polyline(MAIN_CORRIDOR_POLYLINE, {
+        color: '#020617',
+        weight: 8,
+        opacity: 0.88
+      }).addTo(routesLayer);
+
+      L.polyline(MAIN_CORRIDOR_POLYLINE, {
+        color: lineFilter === 'ALL' ? '#38bdf8' : '#64748b',
+        weight: lineFilter === 'ALL' ? 4.4 : 2.6,
+        opacity: lineFilter === 'ALL' ? 0.92 : 0.45
+      }).addTo(routesLayer);
+
+      // Si hay un diagrama específico seleccionado, resaltamos su tramo en su color
+      if (lineFilter !== 'ALL' && DIAGRAM_POLYLINES[lineFilter]) {
+        L.polyline(DIAGRAM_POLYLINES[lineFilter], {
+          color: '#020617',
+          weight: 8.5,
+          opacity: 0.92
+        }).addTo(routesLayer);
+
+        L.polyline(DIAGRAM_POLYLINES[lineFilter], {
+          color: LINE_META[lineFilter].color,
+          weight: 5,
+          opacity: 0.98
+        }).addTo(routesLayer);
+      }
+
+      // 2. Dibujar cabeceras y apeaderos intermedios con etiquetas alternadas arriba/abajo
+      Object.entries(STATIONS).forEach(([name, st]) => {
+        if (st.terminal) {
+          const marker = L.circleMarker(st.coords, {
+            radius: 6.2,
+            color: '#020617',
+            weight: 2,
+            fillColor: '#fbbf24',
+            fillOpacity: 1
+          });
+
+          marker.bindTooltip(name, {
+            permanent: true,
+            direction: st.labelDir,
+            offset: st.labelOffset,
+            className: 'cabecera-label'
+          });
+          marker.addTo(stationsLayer);
+        } else {
+          const stMarker = L.circleMarker(st.coords, {
+            radius: 3.8,
+            color: '#020617',
+            weight: 1.5,
+            fillColor: '#ffffff',
+            fillOpacity: 0.95
+          });
+
+          stMarker.bindTooltip(name, {
+            permanent: true,
+            direction: st.labelDir,
+            offset: st.labelOffset,
+            className: 'station-label'
+          });
+          stMarker.addTo(stationsLayer);
+        }
+      });
+    }
+
+    function updateFilterUI() {
+      document.querySelectorAll('.line-filter-btn').forEach((btn) => {
+        const val = btn.getAttribute('data-filter-line');
+        if (val === lineFilter) {
+          btn.classList.add('bg-white/15', 'text-white', 'font-bold', 'ring-1', 'ring-white/30');
+        } else {
+          btn.classList.remove('bg-white/15', 'text-white', 'font-bold', 'ring-1', 'ring-white/30');
+        }
+      });
+    }
+
+    /**
+     * =========================================================================
+     * 5B. GRÁFICO DE LÍNEA 24 H DE TRENES EN MOVIMIENTO POR DIAGRAMA
+     * =========================================================================
+     */
+    const CHART_SERIES_CONFIG = [
+      {
+        key: "Plottier ↔ Cipolletti",
+        linea: "Plottier ↔ Cipolletti",
+        label: "Plottier ↔ Cipolletti (40xx)",
+        strokeColor: "#2563eb",
+        dotFill: "#2563eb",
+        dotBorder: "#ffffff",
+        dy: -1.4
+      },
+      {
+        key: "Neuquén ↔ Plottier",
+        linea: "Neuquén ↔ Plottier",
+        label: "Neuquén ↔ Plottier (42xx)",
+        strokeColor: "#10b981",
+        dotFill: "#10b981",
+        dotBorder: "#ffffff",
+        dy: -0.5
+      },
+      {
+        key: "Neuquén ↔ Cipolletti",
+        linea: "Neuquén ↔ Cipolletti",
+        label: "Neuquén ↔ Cipolletti (41xx)",
+        strokeColor: "#ea580c",
+        dotFill: "#ea580c",
+        dotBorder: "#ffffff",
+        dy: 0.5
+      },
+      {
+        key: "Plottier ↔ B° Unión",
+        linea: "Plottier ↔ B° Unión",
+        label: "Plottier ↔ B° Unión (48xx)",
+        strokeColor: "#9333ea",
+        dotFill: "#9333ea",
+        dotBorder: "#ffffff",
+        dy: 1.4
+      }
+    ];
+
+    let evolutionSeriesCache = [];
+
+    function countTrainsAtMinute(normalizedMins) {
+      const counts = { total: 0 };
+      CHART_SERIES_CONFIG.forEach((s) => {
+        counts[s.key] = 0;
+      });
+
+      RAIL_SERVICES.forEach((svc) => {
+        if (lineFilter !== 'ALL' && svc.linea !== lineFilter) return;
+        const depMins = toMinutes(svc.salida);
+        if (depMins === null) return;
+
+        if (normalizedMins >= depMins && normalizedMins <= depMins + svc.duracionMin) {
+          counts[svc.linea] = (counts[svc.linea] || 0) + 1;
+          counts.total += 1;
+        }
+      });
+
+      return counts;
+    }
+
+    function rebuildEvolutionCache() {
+      evolutionSeriesCache = [];
+      for (let m = 0; m <= 1440; m += 2) {
+        const evalMin = m === 1440 ? 1439 : m;
+        const c = countTrainsAtMinute(evalMin);
+        evolutionSeriesCache.push({ minute: m, ...c });
+      }
+    }
+
+    function drawEvolutionChart(normalizedMins, liveCounts) {
+      const canvas = document.getElementById("evolution-chart");
+      if (!canvas) return;
+      const container = document.getElementById("chart-container");
+      if (!container || container.classList.contains("hidden")) return;
+
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.floor(rect.width);
+      const height = Math.floor(rect.height);
+
+      if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+      }
+
+      const ctx = canvas.getContext("2d");
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      ctx.clearRect(0, 0, width, height);
+
+      const padLeft = 28;
+      const padRight = 14;
+      const padTop = 18;
+      const padBottom = 20;
+      const plotW = Math.max(40, width - padLeft - padRight);
+      const plotH = Math.max(24, height - padTop - padBottom);
+
+      let maxVal = 2;
+      evolutionSeriesCache.forEach((pt) => {
+        CHART_SERIES_CONFIG.forEach((s) => {
+          if (pt[s.key] > maxVal) maxVal = pt[s.key];
+        });
+      });
+      const yMax = Math.max(3, Math.ceil(maxVal + 1));
+
+      const xForMinute = (m) => padLeft + (m / 1440) * plotW;
+      const yForValue = (v) => padTop + plotH - (v / yMax) * plotH;
+
+      // Grilla horizontal
+      ctx.font = "600 9.5px Inter, sans-serif";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+
+      for (let v = 0; v <= yMax; v++) {
+        const y = Math.round(yForValue(v)) + 0.5;
+        ctx.strokeStyle = v === 0 ? "rgba(148, 163, 184, 0.35)" : "rgba(148, 163, 184, 0.16)";
+        ctx.lineWidth = v === 0 ? 1.1 : 0.8;
+        ctx.beginPath();
+        ctx.moveTo(padLeft, y);
+        ctx.lineTo(padLeft + plotW, y);
+        ctx.stroke();
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(String(v), padLeft - 6, y);
+      }
+
+      // Grilla vertical cada 3 horas
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (let h = 0; h <= 24; h += 3) {
+        const m = h === 24 ? 1440 : h * 60;
+        const x = Math.round(xForMinute(m)) + 0.5;
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.16)";
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(x, padTop);
+        ctx.lineTo(x, padTop + plotH);
+        ctx.stroke();
+
+        const label = h === 24 ? "23:59" : `${String(h).padStart(2, "0")}:00`;
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(label, x, padTop + plotH + 4);
+      }
+
+      const visibleSeries = CHART_SERIES_CONFIG.filter((s) => {
+        if (lineFilter !== 'ALL' && s.linea !== lineFilter) return false;
+        return true;
+      });
+
+      visibleSeries.forEach((s) => {
+        ctx.beginPath();
+        evolutionSeriesCache.forEach((pt, idx) => {
+          const x = xForMinute(pt.minute);
+          const y = yForValue(pt[s.key] || 0) + s.dy;
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.lineTo(xForMinute(1440), yForValue(0));
+        ctx.lineTo(xForMinute(0), yForValue(0));
+        ctx.closePath();
+        ctx.fillStyle = `${s.strokeColor}1A`;
+        ctx.fill();
+
+        ctx.beginPath();
+        evolutionSeriesCache.forEach((pt, idx) => {
+          const x = xForMinute(pt.minute);
+          const y = yForValue(pt[s.key] || 0) + s.dy;
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.strokeStyle = s.strokeColor;
+        ctx.lineWidth = 2.2;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      });
+
+      // Cursor vertical sincronizado con el reloj de la animación
+      const cursorX = xForMinute(normalizedMins);
+      const cursorColor = '#38bdf8';
+
+      ctx.save();
+      ctx.strokeStyle = cursorColor;
+      ctx.lineWidth = 1.6;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(cursorX, padTop - 3);
+      ctx.lineTo(cursorX, padTop + plotH);
+      ctx.stroke();
+      ctx.restore();
+
+      visibleSeries.forEach((s) => {
+        const val = liveCounts[s.key] || 0;
+        const cy = yForValue(val) + s.dy;
+        ctx.beginPath();
+        ctx.arc(cursorX, cy, 4.0, 0, Math.PI * 2);
+        ctx.fillStyle = s.dotFill;
+        ctx.fill();
+        ctx.lineWidth = 1.6;
+        ctx.strokeStyle = s.dotBorder;
+        ctx.stroke();
+      });
+
+      // Pastilla superior de tiempo y total activo
+      const badgeText = `${formatMinutes(normalizedMins)} · ${liveCounts.total} tren${liveCounts.total === 1 ? "" : "es"}`;
+      ctx.font = "700 9.5px Inter, sans-serif";
+      const textW = ctx.measureText(badgeText).width;
+      const pillW = textW + 12;
+      const pillH = 15;
+      const pillX = Math.max(padLeft, Math.min(padLeft + plotW - pillW, cursorX - pillW / 2));
+      const pillY = 1;
+
+      ctx.fillStyle = cursorColor;
+      ctx.beginPath();
+      ctx.roundRect(pillX, pillY, pillW, pillH, 5);
+      ctx.fill();
+
+      ctx.fillStyle = "#020617";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(badgeText, pillX + pillW / 2, pillY + pillH / 2 + 0.5);
+
+      ctx.restore();
+    }
+
+    function renderFrame() {
+      activeMarkersLayer.clearLayers();
+      const normalizedMins = ((simMinutes % 1440) + 1440) % 1440;
+
+      document.getElementById('clock-display').textContent = formatClockWithSeconds(normalizedMins);
+      document.getElementById('time-slider').value = Math.floor(normalizedMins);
+
+      let activeCount = 0;
+
+      RAIL_SERVICES.forEach((svc) => {
+        if (lineFilter !== 'ALL' && svc.linea !== lineFilter) return;
+
+        const depMins = toMinutes(svc.salida);
+        if (depMins === null) return;
+
+        if (normalizedMins >= depMins && normalizedMins <= depMins + svc.duracionMin) {
+          const elapsed = normalizedMins - depMins;
+          const posInfo = getTrainPositionAtElapsed(svc, elapsed, 38);
+          if (!posInfo) return;
+
+          activeCount += 1;
+          const meta = LINE_META[svc.linea];
+
+          const ballIcon = L.divIcon({
+            className: '',
+            html: `
+              <div class="${meta.ballClass}" style="transform: rotate(${posInfo.headingDeg.toFixed(1)}deg);">
+                <svg class="train-ball-arrow" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M6 1L10.5 10.5L6 8.2L1.5 10.5L6 1Z" fill="#ffffff" />
+                </svg>
+              </div>
+            `,
+            iconSize: [22, 22],
+            iconAnchor: [11, 11]
+          });
+
+          L.marker(posInfo.pos, { icon: ballIcon })
+            .bindTooltip(
+              `<strong>Tren ${svc.tren} · ${svc.linea}</strong><br/><span style="color:#cbd5e1;font-size:10.5px;">${svc.clase}</span><br/>${svc.origen} → ${svc.destino} (${svc.salida} – ${svc.llegada})<br/><span style="color:#94a3b8;">Tramo: ${posInfo.fromSt} → ${posInfo.toSt} (${posInfo.nextTime})</span>`,
+              { direction: 'top', offset: [0, -12] }
+            )
+            .addTo(activeMarkersLayer);
+        }
+      });
+
+      const activePill = document.getElementById('active-count-pill');
+      if (activePill) {
+        activePill.textContent = `${activeCount} en circulación`;
+      }
+
+      const liveChartCounts = countTrainsAtMinute(normalizedMins);
+      drawEvolutionChart(normalizedMins, liveChartCounts);
+    }
+
+    function loop(timestamp) {
+      const dtSeconds = (timestamp - lastTimestamp) / 1000;
+      lastTimestamp = timestamp;
+
+      if (isPlaying) {
+        simMinutes = (simMinutes + (dtSeconds * speedMultiplier) / 60) % 1440;
+        renderFrame();
+      }
+
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener('load', () => {
+      rebuildEvolutionCache();
+      renderNetworkGeometry();
+      updateFilterUI();
+      fitMapBounds(false);
+
+      window.addEventListener('resize', () => {
+        fitMapBounds(false);
+        renderFrame();
+      });
+
+      // Botón plegar / desplegar gráfico 24h
+      const toggleChartBtn = document.getElementById('toggle-chart-btn');
+      const chartContainer = document.getElementById('chart-container');
+      if (toggleChartBtn && chartContainer) {
+        toggleChartBtn.addEventListener('click', () => {
+          const isHidden = chartContainer.classList.toggle('hidden');
+          toggleChartBtn.textContent = isHidden ? 'Ver gráfico 24h' : 'Ocultar gráfico';
+          fitMapBounds(true);
+          if (!isHidden) renderFrame();
+        });
+      }
+
+      // Interacción de clic y hover sobre el gráfico Canvas 24h
+      const evoCanvas = document.getElementById('evolution-chart');
+      const evoTooltip = document.getElementById('chart-hover-tooltip');
+
+      function minuteFromCanvasEvent(e) {
+        const rect = evoCanvas.getBoundingClientRect();
+        const padLeft = 28;
+        const padRight = 14;
+        const plotW = Math.max(40, rect.width - padLeft - padRight);
+        const relX = Math.max(0, Math.min(plotW, e.clientX - rect.left - padLeft));
+        return Math.round((relX / plotW) * 1439);
+      }
+
+      if (evoCanvas && evoTooltip) {
+        evoCanvas.addEventListener('click', (e) => {
+          simMinutes = minuteFromCanvasEvent(e);
+          renderFrame();
+        });
+
+        evoCanvas.addEventListener('mousemove', (e) => {
+          const hoverMin = minuteFromCanvasEvent(e);
+          const counts = countTrainsAtMinute(hoverMin);
+          const rect = evoCanvas.getBoundingClientRect();
+          const localX = e.clientX - rect.left;
+          const tooltipX = localX > rect.width - 205 ? localX - 195 : localX + 12;
+
+          const activeSeriesList = CHART_SERIES_CONFIG.filter((s) => {
+            if (lineFilter !== 'ALL' && s.linea !== lineFilter) return false;
+            return true;
+          });
+
+          const rowsHtml = activeSeriesList.map((s) => {
+            const val = counts[s.key] || 0;
+            const dotStyle = `background:${s.dotFill};border:1.5px solid #ffffff;`;
+            return `<div class="flex items-center justify-between gap-3" style="color:#e2e8f0;">
+              <span class="inline-flex items-center gap-1.5">
+                <span style="width:8px;height:8px;border-radius:9999px;display:inline-block;${dotStyle}"></span>
+                <span>${s.label}</span>
+              </span>
+              <strong>${val}</strong>
+            </div>`;
+          }).join('');
+
+          evoTooltip.innerHTML = `
+            <div class="font-bold text-white border-b border-white/15 pb-0.5 mb-1">${formatMinutes(hoverMin)} · Total: ${counts.total}</div>
+            ${rowsHtml}
+            <div class="text-slate-400 text-[9px] mt-1">Clic para saltar a este horario</div>
+          `;
+          evoTooltip.style.left = `${Math.max(8, tooltipX)}px`;
+          evoTooltip.style.top = `6px`;
+          evoTooltip.classList.remove('hidden');
+        });
+
+        evoCanvas.addEventListener('mouseleave', () => {
+          evoTooltip.classList.add('hidden');
+        });
+      }
+
+      // Filtro por diagrama en la leyenda inferior
+      document.querySelectorAll('.line-filter-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          lineFilter = btn.getAttribute('data-filter-line');
+          rebuildEvolutionCache();
+          renderNetworkGeometry();
+          updateFilterUI();
+          fitMapBounds(true);
+          renderFrame();
+        });
+      });
+
+      // Play / Pause al tocar el reloj
+      document.getElementById('clock-toggle-btn').addEventListener('click', () => {
+        isPlaying = !isPlaying;
+        const badge = document.getElementById('play-state-badge');
+        if (badge) badge.textContent = isPlaying ? '❚❚' : '▶';
+      });
+
+      // Selector directo de velocidad respecto al tiempo real
+      document.querySelectorAll('.speed-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          speedMultiplier = Number(btn.getAttribute('data-speed'));
+          document.querySelectorAll('.speed-btn').forEach((b) => {
+            const isActive = Number(b.getAttribute('data-speed')) === speedMultiplier;
+            if (isActive) {
+              b.className = 'speed-btn text-[10px] font-extrabold px-2 sm:px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-200 border border-amber-400/50 cursor-pointer transition';
+            } else {
+              b.className = 'speed-btn text-[10px] font-bold px-2 sm:px-2.5 py-0.5 rounded-full text-slate-300 hover:text-white cursor-pointer transition';
+            }
+          });
+        });
+      });
+
+      // Slider manual de 24h
+      document.getElementById('time-slider').addEventListener('input', (e) => {
+        simMinutes = Number(e.target.value);
+        renderFrame();
+      });
+
+      renderFrame();
+      lastTimestamp = performance.now();
+      requestAnimationFrame(loop);
+    });
+  </script>
+</body>
+</html>
